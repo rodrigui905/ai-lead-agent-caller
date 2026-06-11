@@ -16,15 +16,15 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
-from openai import OpenAI
+from anthropic import Anthropic
 
 # ---- config -------------------------------------------------------------
 CONFIG = json.loads(Path("config.json").read_text(encoding="utf-8"))
 LEADS_FILE = Path("leads.jsonl")
 ADMIN_KEY = os.getenv("ADMIN_KEY", "changeme")
-MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+MODEL = os.getenv("ANTHROPIC_MODEL", "claude-3-5-haiku-latest")
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", ""))
+client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY", ""))
 
 app = FastAPI()
 
@@ -89,12 +89,16 @@ async def chat(req: Request):
     history = body.get("messages", [])
     session_id = body.get("session", "anon")
 
-    msgs = [{"role": "system", "content": system_prompt()}] + history
+    # Anthropic takes the system prompt separately, and messages must start
+    # with a 'user' turn — drop any leading assistant (greeting) messages.
+    convo = list(history)
+    while convo and convo[0]["role"] == "assistant":
+        convo.pop(0)
     try:
-        resp = client.chat.completions.create(
-            model=MODEL, messages=msgs, temperature=0.5, max_tokens=300
+        resp = client.messages.create(
+            model=MODEL, max_tokens=300, system=system_prompt(), messages=convo
         )
-        reply = resp.choices[0].message.content
+        reply = resp.content[0].text
     except Exception as e:
         reply = "Sorry, I'm having a hiccup — leave your name and number and the team will reach out!"
         print("[chat error]", e)
